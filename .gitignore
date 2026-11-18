@@ -1,0 +1,35 @@
+.build/
+DerivedData/
+build/
+
+# Xcode
+*.xcuserstate
+xcuserdata/
+*.xcscmblueprint
+*.xccheckout
+
+# macOS
+.DS_Store
+dist/
+
+# Secrets and local overrides
+.env
+.env.*
+*.p12
+*.cer
+*.pem
+*.key
+*.mobileprovision
+.netrc
+ExportOptions*.plist
+*.log
+*.dmg
+*.zip
+
+# Editors
+.vscode/
+.idea/
+
+# Local tooling
+opencode.json
+.opencode/
