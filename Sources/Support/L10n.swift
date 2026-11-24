@@ -120,6 +120,7 @@ enum L10n {
         "Ready (%.1f s)": "Готова (%.1f с)",
         "Load failed: %@": "Ошибка загрузки: %@",
         "No Accessibility — text is in clipboard": "Нет Accessibility — текст в буфере",
+        "Secure input is enabled — text is in clipboard": "Включён безопасный ввод — текст в буфере",
         "Copied to clipboard": "Скопировано в буфер обмена",
         "Too short": "Слишком коротко",
         "Nothing recognized": "Ничего не распознано",

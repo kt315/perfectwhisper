@@ -215,7 +215,11 @@ final class DictationController {
                     ? .clipboardOnly
                     : requestedMode
 
-                Log.info("insert: mode=\(effectiveMode.rawValue), accessibility=\(Permissions.accessibilityGranted)")
+                Log.info(
+                    "insert: mode=\(effectiveMode.rawValue), accessibility=\(Permissions.accessibilityGranted),"
+                    + " secureInput=\(TextInserter.isSecureInputEnabled),"
+                    + " frontmost=\(NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "?")"
+                )
 
                 let outcome = await inserter.insert(
                     text,
@@ -227,14 +231,20 @@ final class DictationController {
                 case .inserted:
                     // Text is already in the editor — don't get in the user's way.
                     hud.hide()
-                case .clipboard:
-                    let fallback = effectiveMode != requestedMode
+                case .clipboard(let reason):
+                    let title: String
+                    switch reason {
+                    case .requested:
+                        title = L10n.t("Copied to clipboard")
+                    case .noAccessibility:
+                        title = L10n.t("No Accessibility — text is in clipboard")
+                    case .secureInput:
+                        title = L10n.t("Secure input is enabled — text is in clipboard")
+                    }
                     hud.showNotice(
-                        title: fallback
-                            ? L10n.t("No Accessibility — text is in clipboard")
-                            : L10n.t("Copied to clipboard"),
+                        title: title,
                         body: preview(text),
-                        isError: fallback
+                        isError: reason != .requested
                     )
                 }
             }

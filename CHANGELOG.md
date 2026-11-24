@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.0.1
+
+**Insertion**
+- Character-by-character typing no longer dies after a long session and works in
+  terminals: every chunk is now a proper keyDown/keyUp pair, sent in smaller
+  pieces so the target app keeps up.
+- Secure input (password fields, `sudo`, terminals with secure keyboard entry) is
+  detected: the text goes to the clipboard and a notice explains why.
+- Without Accessibility every typing mode falls back to the clipboard with a
+  notice instead of silently doing nothing.
+
+**Housekeeping**
+- Unused Apple Events entitlement removed.
+
 ## 1.0.0 — first public release
 
 Local voice dictation for macOS.

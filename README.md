@@ -30,7 +30,7 @@ No account, no cloud, no telemetry. Audio never leaves your Mac.
 
 ## Install
 
-Download `PerfectWhisper-1.0.0.dmg` from the
+Download `PerfectWhisper-1.0.1.dmg` from the
 [releases page](https://github.com/kt315/perfectwhisper/releases), open it and drag
 the app to `/Applications`. The build is signed with Developer ID and notarized by
 Apple.
