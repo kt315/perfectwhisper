@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.0.2
+
+**HUD**
+- The recording pill stays visible on every Space and follows the active display
+  instead of the main one.
+- Close (×) and "copy to clipboard" buttons inside the recording pill, with tooltips.
+
+**Menu bar**
+- Optional "Show icon in menu bar" switch. With the icon hidden, launching the app
+  again opens Settings, and a Quit button is available there.
+
+**Recognition**
+- Empty initial prompt by default: an English term list could bias the decoder and
+  drop whole chunks of Russian speech. The field remains for those who need it.
+- Timestamps are always enabled — without them WhisperKit can lose chunks of long
+  audio and punctuates worse.
+- Leading and trailing silence is trimmed before decoding, so hallucinated tails
+  ("Спасибо.", "Продолжение следует…", "Gracias") no longer appear.
+- A clip with no speech shows "Nothing recognized" instead of a hallucination.
+
+**Debug builds**
+- Every dictation is saved as a WAV next to the log, together with the raw and
+  cleaned recognized text.
+
 ## 1.0.1
 
 **Insertion**

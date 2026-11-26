@@ -57,3 +57,56 @@ enum Log {
 
     #endif
 }
+
+#if PERFECTWHISPER_LOGGING
+/// Debug-only: keeps the captured audio next to the log so the recognized text
+/// can be compared with what the microphone actually heard. This type is not
+/// compiled into release builds — audio is never written to disk there.
+enum DebugAudio {
+    static func save(_ samples: [Float], at date: Date = Date()) {
+        guard !samples.isEmpty else { return }
+
+        let directory = Defaults.logsDirectory.appendingPathComponent("recordings", isDirectory: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd_HH-mm-ss"
+        let url = directory.appendingPathComponent("dictation-\(formatter.string(from: date)).wav")
+
+        DispatchQueue.global(qos: .utility).async {
+            var data = Data()
+            func append<T: FixedWidthInteger>(_ value: T) {
+                withUnsafeBytes(of: value.littleEndian) { data.append(contentsOf: $0) }
+            }
+
+            let sampleRate = UInt32(AudioCaptureEngine.targetSampleRate)
+            let channels: UInt16 = 1
+            let bits: UInt16 = 16
+            let dataSize = UInt32(samples.count * 2)
+
+            data.append(contentsOf: Array("RIFF".utf8))
+            append(UInt32(36) + dataSize)
+            data.append(contentsOf: Array("WAVE".utf8))
+            data.append(contentsOf: Array("fmt ".utf8))
+            append(UInt32(16))
+            append(UInt16(1)) // PCM
+            append(channels)
+            append(sampleRate)
+            append(sampleRate * UInt32(channels) * UInt32(bits / 8))
+            append(channels * bits / 8)
+            append(bits)
+            data.append(contentsOf: Array("data".utf8))
+            append(dataSize)
+            for sample in samples {
+                append(Int16(clamping: Int((sample * 32767).rounded())))
+            }
+
+            do {
+                try data.write(to: url)
+                Log.info("audio saved: \(url.path) (\(samples.count) samples)")
+            } catch {
+                Log.error("failed to save debug audio: \(error.localizedDescription)")
+            }
+        }
+    }
+}
+#endif

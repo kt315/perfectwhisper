@@ -56,6 +56,8 @@ final class HUDModel {
 
 struct HUDView: View {
     var model: HUDModel
+    var onCancel: () -> Void = {}
+    var onCopy: () -> Void = {}
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
@@ -73,6 +75,19 @@ struct HUDView: View {
                 LevelMeter(level: model.level)
                     .frame(width: 46, height: 18)
                     .layoutPriority(2)
+
+                pillButton(
+                    "doc.on.doc",
+                    size: 14,
+                    help: L10n.t("Copy to clipboard"),
+                    action: onCopy
+                )
+                pillButton(
+                    "xmark.circle.fill",
+                    size: 16,
+                    help: L10n.t("Cancel dictation"),
+                    action: onCancel
+                )
             } else if model.phase == .transcribing {
                 ProgressView()
                     .controlSize(.small)
@@ -82,7 +97,7 @@ struct HUDView: View {
             }
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 12)
+        .padding(.vertical, 10)
         .frame(minHeight: 40, alignment: .leading)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .overlay(
@@ -123,6 +138,27 @@ struct HUDView: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: 560, alignment: .leading)
         }
+    }
+
+    /// Small round action inside the recording pill. The glyph is larger than
+    /// the row height, so the pill keeps its height while the target grows.
+    private func pillButton(
+        _ systemName: String,
+        size: CGFloat,
+        help: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: size, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(help)
+        .accessibilityLabel(help)
+        .layoutPriority(3)
     }
 
     private var tint: Color {
@@ -172,6 +208,11 @@ private struct LevelMeter: View {
 /// above full-screen apps. This is critical — otherwise ⌘V goes to the wrong place.
 @MainActor
 final class HUDController {
+    /// Called when the user clicks the close button in the recording pill.
+    var onCancel: () -> Void = {}
+    /// Called when the user wants the text on the clipboard without insertion.
+    var onCopy: () -> Void = {}
+
     private let model = HUDModel()
     private var panel: NSPanel?
     private var hideTask: Task<Void, Never>?
@@ -187,10 +228,41 @@ final class HUDController {
         } else {
             stopTicker()
         }
-        ensurePanel()
-        panel?.alphaValue = 1
-        panel?.orderFrontRegardless()
+        present()
         Log.info("HUD shown: \(phase.title)")
+    }
+
+    /// Puts the panel on screen, moving it to the active display when it was
+    /// hidden before. A visible panel is never moved, so a notice does not make
+    /// the HUD jump across monitors.
+    private func present() {
+        ensurePanel()
+        guard let panel else { return }
+        panel.ignoresMouseEvents = !isRecordingPhase
+        let target = panelSize(for: model.phase)
+        let resized = panel.frame.size != target
+        if resized {
+            panel.setContentSize(target)
+        }
+        if resized || !panel.isVisible {
+            position(panel, on: panel.isVisible ? panel.screen : nil)
+        }
+        panel.alphaValue = 1
+        panel.orderFrontRegardless()
+    }
+
+    /// Only the recording pill is clickable (it has the close button), and only
+    /// it needs a small hit area. Everything else is a pass-through overlay.
+    private var isRecordingPhase: Bool {
+        if case .recording = model.phase { return true }
+        return false
+    }
+
+    private func panelSize(for phase: HUDPhase) -> NSSize {
+        if case .recording = phase {
+            return NSSize(width: 380, height: 64)
+        }
+        return NSSize(width: 640, height: 300)
     }
 
     func setLevel(_ level: Float) {
@@ -201,8 +273,7 @@ final class HUDController {
         model.phase = phase
         if case .recording = phase {
             if recordingStartedAt == nil { startTicker() }
-            ensurePanel()
-            panel?.orderFrontRegardless()
+            present()
         } else {
             stopTicker()
         }
@@ -213,8 +284,7 @@ final class HUDController {
         Log.info("HUD message: \(text)")
         stopTicker()
         model.phase = isError ? .error(text) : .message(text)
-        ensurePanel()
-        panel?.orderFrontRegardless()
+        present()
         hideTask?.cancel()
         hideTask = Task { [weak self] in
             try? await Task.sleep(for: duration)
@@ -228,9 +298,7 @@ final class HUDController {
         Log.info("HUD notice: \(title)")
         stopTicker()
         model.phase = .notice(title: title, body: body)
-        ensurePanel()
-        panel?.alphaValue = 1
-        panel?.orderFrontRegardless()
+        present()
         hideTask?.cancel()
         hideTask = Task { [weak self] in
             try? await Task.sleep(for: duration)
@@ -286,24 +354,68 @@ final class HUDController {
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.ignoresMouseEvents = true
+        panel.becomesKeyOnlyIfNeeded = true
         panel.hidesOnDeactivate = false
         panel.isMovable = false
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        panel.contentView = NSHostingView(rootView: HUDView(model: model))
+        // `.stationary` must not be combined with `.canJoinAllSpaces`: it keeps
+        // the panel tied to the Space it was created on, so it disappears when
+        // the user switches desktops.
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        panel.contentView = NSHostingView(rootView: HUDView(
+            model: model,
+            onCancel: { [weak self] in self?.onCancel() },
+            onCopy: { [weak self] in self?.onCopy() }
+        ))
         panel.setContentSize(size)
         panel.alphaValue = 0
         self.panel = panel
-        position(panel)
+        position(panel, on: nil)
+        startObserving()
     }
 
-    private func position(_ panel: NSPanel) {
-        guard let screen = NSScreen.main ?? NSScreen.screens.first else { return }
+    /// Some macOS builds still drop a panel that was ordered in on another
+    /// Space, so the panel is re-asserted on space changes and screen changes.
+    private func startObserving() {
+        let workspace = NSWorkspace.shared.notificationCenter
+        workspace.addObserver(
+            forName: NSWorkspace.activeSpaceDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, let panel = self.panel, panel.isVisible else { return }
+                panel.orderFrontRegardless()
+            }
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didChangeScreenParametersNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                guard let self, let panel = self.panel, panel.isVisible else { return }
+                self.position(panel, on: nil)
+                panel.orderFrontRegardless()
+            }
+        }
+    }
+
+    /// The display the user is working on: the one under the pointer, else the
+    /// main one (the app itself has no key window, so `NSScreen.main` alone is
+    /// not enough with several monitors).
+    private func activeScreen() -> NSScreen? {
+        let mouse = NSEvent.mouseLocation
+        return NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) }
+            ?? NSScreen.main
+            ?? NSScreen.screens.first
+    }
+
+    private func position(_ panel: NSPanel, on screen: NSScreen?) {
+        guard let screen = screen ?? activeScreen() else { return }
         let visible = screen.visibleFrame
         let size = panel.frame.size
-        let origin = NSPoint(
-            x: visible.midX - size.width / 2,
-            y: visible.minY + 90
-        )
-        panel.setFrameOrigin(origin)
+        let x = min(max(visible.midX - size.width / 2, visible.minX + 8), visible.maxX - size.width - 8)
+        panel.setFrameOrigin(NSPoint(x: x, y: visible.minY + 90))
     }
 }

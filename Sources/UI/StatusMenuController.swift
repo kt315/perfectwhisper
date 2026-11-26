@@ -4,7 +4,7 @@ import AppKit
 /// reports clicks through closures.
 @MainActor
 final class StatusMenuController {
-    private let statusItem: NSStatusItem
+    private var statusItem: NSStatusItem?
     private let deviceManager: AudioDeviceManager
     private let repository: ModelRepository
     private let asrState: ASRState
@@ -27,9 +27,24 @@ final class StatusMenuController {
         self.deviceManager = deviceManager
         self.repository = repository
         self.asrState = asrState
-        self.statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        installStatusItem()
+    }
 
-        if let button = statusItem.button {
+    /// The icon can be hidden from the menu bar; dictation keeps working and the
+    /// settings window is still reachable by launching the app again.
+    func setIconVisible(_ visible: Bool) {
+        if visible {
+            installStatusItem()
+        } else if let statusItem {
+            NSStatusBar.system.removeStatusItem(statusItem)
+            self.statusItem = nil
+        }
+    }
+
+    private func installStatusItem() {
+        guard statusItem == nil else { return }
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        if let button = item.button {
             button.image = statusImage()
             button.image?.isTemplate = true
             button.target = self
@@ -37,11 +52,12 @@ final class StatusMenuController {
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.toolTip = "PerfectWhisper"
         }
+        statusItem = item
     }
 
     func updateIcon() {
-        statusItem.button?.image = statusImage()
-        statusItem.button?.image?.isTemplate = true
+        statusItem?.button?.image = statusImage()
+        statusItem?.button?.image?.isTemplate = true
     }
 
     private func statusImage() -> NSImage? {
@@ -64,6 +80,7 @@ final class StatusMenuController {
     }
 
     private func showMenu() {
+        guard let statusItem else { return }
         statusItem.menu = buildMenu()
         statusItem.button?.performClick(nil)
         statusItem.menu = nil

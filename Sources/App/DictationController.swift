@@ -68,8 +68,7 @@ final class DictationController {
         guard phase == .recording else { return }
         playSound("Pop")
 
-        let samples = audio.stop()
-        startedAt = nil
+        let samples = stopCapture()
         setPhase(.transcribing)
         hud.update(phase: .transcribing)
 
@@ -85,10 +84,54 @@ final class DictationController {
         Task { await self.transcribe(samples: samples) }
     }
 
+    /// The user pressed "copy to clipboard" in the HUD: transcribe, but never
+    /// type into the active app.
+    func finishToClipboard() {
+        guard phase == .recording else { return }
+        playSound("Pop")
+
+        let samples = stopCapture()
+        setPhase(.transcribing)
+        hud.update(phase: .transcribing)
+
+        let duration = Double(samples.count) / AudioCaptureEngine.targetSampleRate
+        Log.info("end of dictation (clipboard): \(String(format: "%.2f", duration)) s of audio")
+        guard duration >= Defaults.minDuration else {
+            setPhase(.idle)
+            Log.error("recording too short (\(String(format: "%.2f", duration)) s) — cancelling")
+            hud.flash(L10n.t("Too short"), isError: true)
+            return
+        }
+
+        Task { await self.transcribe(samples: samples, forceMode: .clipboardOnly) }
+    }
+
+    private func stopCapture() -> [Float] {
+        let samples = audio.stop()
+        startedAt = nil
+        #if PERFECTWHISPER_LOGGING
+        DebugAudio.save(samples)
+        #endif
+        return samples
+    }
+
+    /// The user cancelled from the HUD: drop the audio, do not transcribe.
+    func cancelRecording() {
+        guard phase == .recording else { return }
+        _ = audio.stop()
+        startedAt = nil
+        setPhase(.idle)
+        hud.hide()
+        Log.info("dictation cancelled from the HUD")
+    }
+
     /// Recording was interrupted (e.g. headphones were unplugged): don't lose what we captured.
     func handleInterruption(samples: [Float]) {
         guard phase == .recording else { return }
         Log.error("recording interrupted externally: \(String(format: "%.2f", Double(samples.count) / AudioCaptureEngine.targetSampleRate)) s of audio")
+        #if PERFECTWHISPER_LOGGING
+        DebugAudio.save(samples)
+        #endif
         startedAt = nil
         setPhase(.transcribing)
 
@@ -176,7 +219,7 @@ final class DictationController {
         hud.show(phase: .recording)
     }
 
-    private func transcribe(samples: [Float]) async {
+    private func transcribe(samples: [Float], forceMode: InsertMode? = nil) async {
         guard let folder = ModelResolver.currentFolder() else {
             setPhase(.idle)
             hud.flash(L10n.t("Model not found"), isError: true)
@@ -197,6 +240,7 @@ final class DictationController {
                 prompt: prompt
             )
 
+            Log.info("raw [\(output.detectedLanguage)]: \(output.text)")
             let text = TextPostprocessor.clean(output.text)
             Log.info(
                 "recognized: \(text.count) characters, language=\(output.detectedLanguage), \(String(format: "%.2f", output.seconds)) s for \(String(format: "%.1f", Double(samples.count) / AudioCaptureEngine.targetSampleRate)) s of audio"
@@ -209,7 +253,7 @@ final class DictationController {
                 // Without Accessibility neither synthetic ⌘V nor synthetic keystrokes
                 // reach other apps — rather than pretend we inserted, put the text on
                 // the clipboard and say so.
-                let requestedMode = Defaults.insertMode
+                let requestedMode = forceMode ?? Defaults.insertMode
                 let effectiveMode: InsertMode =
                     (requestedMode != .clipboardOnly && !Permissions.accessibilityGranted)
                     ? .clipboardOnly
@@ -256,6 +300,8 @@ final class DictationController {
                     output.detectedLanguage
                 )
             )
+        } catch TranscriberError.noSpeech {
+            hud.flash(L10n.t("Nothing recognized"), isError: true)
         } catch {
             hud.flash(L10n.t("Error: %@", error.localizedDescription), isError: true, duration: .milliseconds(2600))
         }

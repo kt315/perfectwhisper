@@ -30,7 +30,7 @@ No account, no cloud, no telemetry. Audio never leaves your Mac.
 
 ## Install
 
-Download `PerfectWhisper-1.0.1.dmg` from the
+Download `PerfectWhisper-1.0.2.dmg` from the
 [releases page](https://github.com/kt315/perfectwhisper/releases), open it and drag
 the app to `/Applications`. The build is signed with Developer ID and notarized by
 Apple.
@@ -123,8 +123,9 @@ Hugging Face; a corrupted file is deleted and the download fails.
 ### Language and prompt
 
 Auto-detection uses the same multilingual model as `whisper.cpp`. The initial
-prompt is the main quality lever for mixed Russian/English speech: list your
-frequently used terms and product names there.
+prompt is optional: it can help with rare names and product terms, but a list of
+English words can also bias Russian speech — leave it empty unless you need
+specific terms.
 
 ## Updates
 

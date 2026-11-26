@@ -19,11 +19,14 @@ final class ASRState {
 enum TranscriberError: LocalizedError {
     case modelNotLoaded
     case emptyAudio
+    /// The clip has no speech: only silence or a click. Nothing to transcribe.
+    case noSpeech
 
     var errorDescription: String? {
         switch self {
         case .modelNotLoaded: return L10n.t("Model is not loaded yet")
         case .emptyAudio: return L10n.t("Empty recording")
+        case .noSpeech: return L10n.t("Nothing recognized")
         }
     }
 }
@@ -220,15 +223,34 @@ final class WhisperKitTranscriber: @unchecked Sendable {
         guard let kit = currentKit else { throw TranscriberError.modelNotLoaded }
         guard !samples.isEmpty else { throw TranscriberError.emptyAudio }
 
+        let audio = SilenceTrimmer.trim(samples)
+        guard !audio.isEmpty,
+              Double(audio.count) / AudioCaptureEngine.targetSampleRate >= 0.4 else {
+            Log.info("no speech after trimming — skipping recognition")
+            throw TranscriberError.noSpeech
+        }
+        if audio.count != samples.count {
+            Log.info(
+                String(
+                    format: "audio trimmed: %.2f → %.2f s",
+                    Double(samples.count) / AudioCaptureEngine.targetSampleRate,
+                    Double(audio.count) / AudioCaptureEngine.targetSampleRate
+                )
+            )
+        }
+
         var options = decodingOptions(kit: kit, language: language, prompt: prompt)
         options.wordTimestamps = wordTimestamps
+        Log.info(
+            "transcribe: language=\(language ?? "auto"), promptTokens=\(options.promptTokens?.count ?? 0),"
+            + " timestamps=\(!options.withoutTimestamps)"
+        )
         if wordTimestamps {
-            // Without timestamp tokens WhisperKit returns degenerate word timings
-            // (all words at one point). They are needed for phrase-by-phrase freezing.
+            // Word timings are only produced when timestamp tokens are on.
             options.withoutTimestamps = false
         }
         let started = Date()
-        let results = try await kit.transcribe(audioArray: samples, decodeOptions: options)
+        let results = try await kit.transcribe(audioArray: audio, decodeOptions: options)
         let seconds = Date().timeIntervalSince(started)
         await MainActor.run { self.state.lastLatency = seconds }
         return makeOutput(results, seconds: seconds, language: language)
@@ -248,15 +270,18 @@ final class WhisperKitTranscriber: @unchecked Sendable {
 
     private func decodingOptions(kit: WhisperKit, language: String?, prompt: String?) -> DecodingOptions {
         let isAuto = (language == nil || language == "auto")
+        // Timestamps are kept on: without them WhisperKit can drop whole chunks
+        // of long audio, and the model also punctuates better with them.
         var options = DecodingOptions(
             language: isAuto ? nil : language,
             usePrefillPrompt: true,
             detectLanguage: isAuto,
             skipSpecialTokens: true,
-            withoutTimestamps: true
+            withoutTimestamps: false
         )
 
-        // initial_prompt: the main quality lever for mixed RU/EN speech.
+        // initial_prompt is optional: it helps with rare names but can also bias
+        // the decoder (see the empty default in Prefs).
         if let prompt, !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
            let tokenizer = kit.tokenizer {
             var tokens = tokenizer.encode(text: " " + prompt)
@@ -264,6 +289,7 @@ final class WhisperKitTranscriber: @unchecked Sendable {
                 tokens = Array(tokens.suffix(200))
             }
             options.promptTokens = tokens
+            Log.info("prompt tokens: \(tokens.count)")
         }
         return options
     }
@@ -308,5 +334,56 @@ private final class Locked<Value>: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         return body(&value)
+    }
+}
+
+/// Drops leading and trailing silence before decoding.
+///
+/// Whisper continues YouTube subtitles when the clip ends with a second of
+/// quiet: "Спасибо.", "Продолжение следует...", "Gracias" — and the phrase is
+/// different on every run because it is sampled. Trimming the silence removes
+/// the trigger instead of chasing a list of hallucinations.
+enum SilenceTrimmer {
+    static func trim(_ samples: [Float], sampleRate: Double = AudioCaptureEngine.targetSampleRate) -> [Float] {
+        guard samples.count > Int(sampleRate) else { return samples }
+
+        let window = max(1, Int(sampleRate * 0.05))
+        var levels: [Float] = []
+        levels.reserveCapacity(samples.count / window + 1)
+        var index = 0
+        while index < samples.count {
+            let end = min(index + window, samples.count)
+            var sum: Float = 0
+            for i in index..<end { sum += samples[i] * samples[i] }
+            levels.append((sum / Float(end - index)).squareRoot())
+            index = end
+        }
+
+        // Below this the clip is just noise or a click: no speech at all.
+        guard let peak = levels.max(), peak > 0.01, !levels.isEmpty else { return [] }
+
+        let sorted = levels.sorted()
+        let p95 = sorted[min(sorted.count - 1, Int(Double(sorted.count) * 0.95))]
+        let threshold = max(0.008, 0.15 * p95)
+
+        // 0.3 s moving average: a click, breath or chair creak is not speech.
+        let smooth = 6
+        var smoothed = [Float](repeating: 0, count: levels.count)
+        var running: Float = 0
+        for i in levels.indices {
+            running += levels[i]
+            if i >= smooth { running -= levels[i - smooth] }
+            smoothed[i] = running / Float(min(i + 1, smooth))
+        }
+
+        guard let first = smoothed.firstIndex(where: { $0 > threshold }),
+              let last = smoothed.lastIndex(where: { $0 > threshold }) else {
+            return [] // nothing above the noise floor: silence with a click
+        }
+
+        let start = max(0, Int(Double(first) * 0.05 * sampleRate) - Int(0.20 * sampleRate))
+        let end = min(samples.count, Int((Double(last) * 0.05 + 0.25) * sampleRate))
+        guard end - start >= Int(sampleRate) else { return samples }
+        return Array(samples[start..<end])
     }
 }

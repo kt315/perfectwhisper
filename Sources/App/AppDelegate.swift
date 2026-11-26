@@ -79,6 +79,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         wireMenu()
         wireControllers()
         observeNotifications()
+        menu.setIconVisible(UserDefaults.standard.bool(forKey: PrefKey.showMenuBarIcon))
 
         deviceManager.startObserving()
         registerHotkey(announce: false)
@@ -142,7 +143,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controller.onMicrophonePermissionNeeded = { [weak self] in self?.requestMicrophoneInteractively() }
         controller.onPhaseChanged = { [weak self] in self?.menu.updateIcon() }
         repository.onSelectionChanged = { [weak self] in self?.controller.reloadModel() }
+        hud.onCancel = { [weak self] in self?.controller.cancelRecording() }
+        hud.onCopy = { [weak self] in self?.controller.finishToClipboard() }
         deviceManager.onChange = { [weak self] in self?.menu.updateIcon() }
+    }
+
+    /// Double-clicking the app in Finder or Spotlight sends a reopen event to the
+    /// running instance: show the settings window, which is the only way back
+    /// when the menu bar icon is hidden.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        settings.show()
+        return true
     }
 
     private func observeNotifications() {
@@ -151,6 +162,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ) { [weak self] _ in
             Task { @MainActor in self?.registerHotkey(announce: true) }
         })
+
+        observations.append(NotificationCenter.default.addObserver(
+            forName: .perfectWhisperMenuBarIconChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.menu.setIconVisible(UserDefaults.standard.bool(forKey: PrefKey.showMenuBarIcon))
+            }
+        })
+
+        // A second launch (Spotlight, Finder, `open`) asks the running instance
+        // to open its settings window.
+        let distributed = DistributedNotificationCenter.default()
+        distributed.addObserver(
+            forName: Notification.Name("com.kt315.perfectwhisper.showSettings"),
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.settings.show() }
+        }
     }
 
     /// Shows the system microphone prompt directly, without an intermediate alert.

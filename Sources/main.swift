@@ -38,8 +38,18 @@ if let index = arguments.firstIndex(of: "--login-item"), arguments.count > index
     exit(0)
 }
 
-if let index = arguments.firstIndex(of: "--transcribe"), arguments.count > index + 1 {
-    await TranscribeHarness.run(path: arguments[index + 1])
+if let index = arguments.firstIndex(of: "--transcribe") {
+    var paths: [String] = []
+    var cursor = index + 1
+    while cursor < arguments.count, !arguments[cursor].hasPrefix("--") {
+        paths.append(arguments[cursor])
+        cursor += 1
+    }
+    guard !paths.isEmpty else {
+        print("Usage: --transcribe <file> [file ...]")
+        exit(1)
+    }
+    await TranscribeHarness.run(paths: paths)
     exit(0)
 }
 #endif

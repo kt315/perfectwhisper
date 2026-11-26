@@ -6,13 +6,14 @@ import SwiftUI
 
 struct GeneralSettingsView: View {
     @AppStorage(PrefKey.uiLanguage) private var uiLanguage = "auto"
-    @AppStorage(PrefKey.insertMode) private var insertMode = InsertMode.pasteAndRestore.rawValue
+    @AppStorage(PrefKey.insertMode) private var insertMode = InsertMode.typeUnicode.rawValue
     @AppStorage(PrefKey.trailingSpace) private var trailingSpace = true
     @AppStorage(PrefKey.sounds) private var sounds = true
     @AppStorage(PrefKey.language) private var language = "auto"
     @AppStorage(PrefKey.initialPrompt) private var prompt = Defaults.defaultPrompt
-    @AppStorage(PrefKey.hotkeyKind) private var hotkeyKind = "key"
-    @AppStorage(PrefKey.doubleModifier) private var doubleModifier = "fn"
+    @AppStorage(PrefKey.hotkeyKind) private var hotkeyKind = "doubleMod"
+    @AppStorage(PrefKey.doubleModifier) private var doubleModifier = "rightCommand"
+    @AppStorage(PrefKey.showMenuBarIcon) private var showMenuBarIcon = true
     @State private var accessibilityGranted = Permissions.accessibilityGranted
 
     private let languages: [(String, String)] = [
@@ -119,7 +120,7 @@ struct GeneralSettingsView: View {
                             RoundedRectangle(cornerRadius: 6)
                                 .strokeBorder(Color.secondary.opacity(0.25))
                         )
-                    Text(L10n.t("A list of terms and languages noticeably improves mixed-speech accuracy. Leave empty to disable."))
+                    Text(L10n.t("Optional. Can help with rare names and product terms, but may also bias recognition — leave it empty if unsure."))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -152,6 +153,21 @@ struct GeneralSettingsView: View {
                 Text(L10n.t("The app starts automatically when you log in. It appears in System Settings → General → Login Items."))
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            Section(L10n.t("Menu bar")) {
+                Toggle(L10n.t("Show icon in menu bar"), isOn: $showMenuBarIcon)
+                    .onChange(of: showMenuBarIcon) { _, _ in
+                        NotificationCenter.default.post(name: .perfectWhisperMenuBarIconChanged, object: nil)
+                    }
+                if !showMenuBarIcon {
+                    Text(L10n.t("The icon is hidden. Launch PerfectWhisper again from Spotlight or Finder to reopen this window."))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button(L10n.t("Quit PerfectWhisper")) { NSApp.terminate(nil) }
+                        .controlSize(.small)
+                }
             }
 
             Section(L10n.t("Sounds")) {

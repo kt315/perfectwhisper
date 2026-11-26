@@ -34,5 +34,13 @@ enum InstanceGuard {
             .runningApplications(withBundleIdentifier: bundleID)
             .filter { $0 != current }
         others.first?.activate()
+        // The running instance is a menu bar app with no windows: ask it to show
+        // the settings window, otherwise a relaunch would look like nothing happened.
+        DistributedNotificationCenter.default().postNotificationName(
+            Notification.Name("com.kt315.perfectwhisper.showSettings"),
+            object: nil,
+            userInfo: nil,
+            deliverImmediately: true
+        )
     }
 }

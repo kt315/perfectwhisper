@@ -28,6 +28,7 @@ enum PrefKey {
     static let onboardingDone = "onboarding.completed"
 
     static let uiLanguage = "ui.language"
+    static let showMenuBarIcon = "ui.showMenuBarIcon"
 }
 
 // MARK: - Insert mode
@@ -57,7 +58,9 @@ enum Defaults {
         CGEventFlags.maskShift.rawValue | CGEventFlags.maskCommand.rawValue
     )
 
-    static let defaultPrompt = "OpenCode, Swift, Xcode, Whisper, API, GitHub, macOS, PerfectWhisper, CoreML, ANE, VS Code, C++, Python, terminal, Git, JSON, CLI, pull request"
+    /// No prompt by default: an English term list biased the decoder on Russian
+    /// speech and could drop whole chunks. The field stays for those who need it.
+    static let defaultPrompt = ""
 
     static var appSupportDirectory: URL {
         let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
@@ -87,6 +90,7 @@ enum Defaults {
             PrefKey.minDuration: 0.35,
             PrefKey.modelVariant: "large-v3-v20240930_turbo",
             PrefKey.uiLanguage: "auto",
+            PrefKey.showMenuBarIcon: true,
         ])
     }
 
@@ -148,4 +152,5 @@ extension Notification.Name {
     static let perfectWhisperHotkeyChanged = Notification.Name("perfectWhisper.hotkeyChanged")
     static let perfectWhisperModelChanged = Notification.Name("perfectWhisper.modelChanged")
     static let perfectWhisperOpenModelSettings = Notification.Name("perfectWhisper.openModelSettings")
+    static let perfectWhisperMenuBarIconChanged = Notification.Name("perfectWhisper.menuBarIconChanged")
 }
